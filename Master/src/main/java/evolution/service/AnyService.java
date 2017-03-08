@@ -5,8 +5,9 @@ import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 import org.apache.http.HttpResponse;
 import org.springframework.stereotype.Service;
@@ -21,75 +22,78 @@ import lombok.extern.slf4j.Slf4j;
 public class AnyService {
 	public static List<String> clusterHosts;
 	
-	public static String taskUrl;
+	public static String taskPath;
 	
 	static {
-		taskUrl = "/mapReduce";
+		taskPath = "/mapReduce";
 		clusterHosts = new LinkedList<>();
 		clusterHosts.add("http://192.168.0.101:8080");
 		clusterHosts.add("http://192.168.0.107:8080");
 	}
 	
-	public Map<String, Task> getTasks(int dataCount) {
+	public String getRandomTaskUrlExcept(String taskUrl) {
+		String randomTaskUrl;
+		do {
+			randomTaskUrl = clusterHosts.get(ThreadLocalRandom.current().nextInt(0, clusterHosts.size() + 1)) + taskPath;
+		} while (randomTaskUrl.equals(taskUrl));
+		return randomTaskUrl;
+	}
+	
+	public List<Task> getTasks(int dataCount) {
 		int beginIndex, endIndex = -1;
 		int clusterCount = clusterHosts.size();
 		int dataSizePerCluster = dataCount / clusterCount;
-		Map<String, Task> tasks = new LinkedHashMap<>();
+		List<Task> tasks = new LinkedList<>();
 		for (int i = 0; i < clusterCount; i++) {
 			beginIndex = endIndex + 1;
 			endIndex = beginIndex + dataSizePerCluster;
 			endIndex = endIndex < dataCount - 1 ? endIndex : dataCount - 1;
-			tasks.put(clusterHosts.get(i) + taskUrl, new Task(beginIndex, endIndex, null));
+			tasks.add(new Task(getRandomTaskUrlExcept(null), beginIndex, endIndex));
 		}
 		return tasks;
 	}
 
-	public void map(List<String> data, Map<String, Task> taskMap) {
-		Map<String, Future<HttpResponse>> responseMap = new LinkedHashMap<>();
-		for (Entry<String, Task> taskEntry : taskMap.entrySet()) {
-			String url = taskEntry.getKey();
-			Task task = taskEntry.getValue();
+	public void map(List<String> data, List<Task> tasks) {
+		for (Task task : tasks) {
+			String url = task.getTaskUrl();
 			List<String> partialData = new ArrayList<>();
 			for (int i = task.getBeginDataIndex(); i <= task.getEndDataIndex(); i++) {
 				partialData.add(data.get(i));
 			}
-			responseMap.put(url, Sender.post(url, partialData));
-		}
-		for (Entry<String, Future<HttpResponse>> responseEntry : responseMap.entrySet()) {
-			Task task = taskMap.get(responseEntry.getKey());
-			task.setResponse(responseEntry.getValue());
+			task.setResponse(Sender.post(url, partialData));
 		}
 	}
 	
 	public Map<String, Double> mapReduce(List<String> data) {
-		Map<String, Task> taskMap = getTasks(data.size());
-		map(data, taskMap);
+		List<Task> tasks = getTasks(data.size());
 		Map<String, Double> counts = new LinkedHashMap<>();
-		reduce(taskMap, counts);
+		do {
+			map(data, tasks);
+			tasks = reduce(tasks, counts);
+		} while (tasks != null && tasks.size() > 0);
 		return counts;
 	}
 	
-	public void reduce(Map<String, Task> taskMap, Map<String, Double> counts) {
+	public List<Task> reduce(List<Task> tasks, Map<String, Double> counts) {
 		List<Task> unsuccessfulTasks = new LinkedList<>();
-		while (taskMap.size() > 0) {
-			List<String> doneTaskUrls = new LinkedList<>();
-			for (Entry<String, Task> taskEntry : taskMap.entrySet()) {
-				Future<HttpResponse> response = taskEntry.getValue().getResponse();
+		while (tasks != null && tasks.size() > 0) {// Tasks not Handled
+			tasks = tasks.stream().filter(x -> x.getSuccess() == null).collect(Collectors.toList());
+			for (Task task : tasks) {
+				Future<HttpResponse> response = task.getResponse();
 				if (response.isDone()) {
 					Map<String, Double> partialCounts = Sender.getMap(response, String.class, Double.class);
-					if (partialCounts == null) {
-						unsuccessfulTasks.add(taskEntry.getValue());
+					if (partialCounts == null) {// The response is corrupted.
+						task.setSuccess(false);
+						task.setTaskUrl(getRandomTaskUrlExcept(task.getTaskUrl()));// Select another cluster to do the task.
+						unsuccessfulTasks.add(task);
+						log.error("The unsuccessful task is {}.", task);
+					} else {
+						task.setSuccess(true);
+						MapUtil.updateCount(partialCounts, counts);
 					}
-					MapUtil.updateCount(partialCounts, counts);
-					doneTaskUrls.add(taskEntry.getKey());
 				}
 			}
-			for (String doneTaskUrl : doneTaskUrls) {
-				taskMap.remove(doneTaskUrl);
-			}
 		}
-		for (Task unsuccessfulTask : unsuccessfulTasks) {
-			log.info("The unsuccessful task is {}.", unsuccessfulTask);
-		}
+		return unsuccessfulTasks;
 	}
 }

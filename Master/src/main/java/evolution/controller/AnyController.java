@@ -17,7 +17,7 @@ public class AnyController {
 	@Autowired
 	private AnyService anyService;
 	
-	@PostMapping("/reduce")
+	@PostMapping("/mapReduce")
 	public Map<String, Double> reduce(@RequestBody List<String> data) {
 		Map<String, Double> dataCount = anyService.mapReduce(data);
 		log.info("The data count is {}.", dataCount);
