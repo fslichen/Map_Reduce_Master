@@ -10,6 +10,8 @@ public class AnyControllerTest {
 	@Test
 	public void testMapReduce() {
 		Sender.post("http://localhost:8080/mapReduce", 
-				Arrays.asList("apple", "pear", "apple", "banana", "apple", "pear", "pear"));
+				Arrays.asList("apple", "pear", "apple", 
+						"banana", "apple", "pear", 
+						"pear", "apple", "banana"));
 	}
 }	

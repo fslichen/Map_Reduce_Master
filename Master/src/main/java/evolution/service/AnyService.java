@@ -23,7 +23,7 @@ public class AnyService {
 		taskUrl = "/partialSummarize";
 		clusterHosts = new LinkedList<>();
 		clusterHosts.add("http://192.168.0.101:8080");
-//		clusterHosts.add("http://192.168.1.107:8080");
+		clusterHosts.add("http://192.168.0.107:8080");
 	}
 	
 	public List<Integer> getTaskIndexes(int taskCount, int clusterCount) {
@@ -53,15 +53,21 @@ public class AnyService {
 			responses.add(Sender.post(url, partialData));
 		}
 		// Reduce
-		int doneTaskCount = 0;
 		Map<String, Double> summary = new HashMap<>();
-		while (doneTaskCount < taskCount) {
-			for (Future<HttpResponse> response : responses) {
+		while (responses.size() > 0) {
+			int i = 0;
+			boolean isDone = false;
+			for (i = 0; i < responses.size(); i++) {
+				Future<HttpResponse> response = responses.get(i);
 				if (response.isDone()) {
 					Map<String, Double> partialSummary = Sender.getMap(response, String.class, Double.class);
 					MapUtil.updateCount(partialSummary, summary);
-					doneTaskCount++;
+					isDone = true;
+					break;
 				}
+			}
+			if (isDone) {
+				responses.remove(i);
 			}
 		}
 		return summary;
