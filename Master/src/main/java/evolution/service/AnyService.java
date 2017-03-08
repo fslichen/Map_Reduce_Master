@@ -20,7 +20,7 @@ public class AnyService {
 	public static String taskUrl;
 	
 	static {
-		taskUrl = "/";
+		taskUrl = "/partialSummarize";
 		clusterHosts = new LinkedList<>();
 		clusterHosts.add("http://192.168.0.101:8080");
 //		clusterHosts.add("http://192.168.1.107:8080");
