@@ -1,75 +1,95 @@
 package evolution.service;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.Future;
 
 import org.apache.http.HttpResponse;
 import org.springframework.stereotype.Service;
 
+import evolution.dto.Task;
 import evolution.util.MapUtil;
 import evolution.util.Sender;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
+@Slf4j
 public class AnyService {
 	public static List<String> clusterHosts;
 	
 	public static String taskUrl;
 	
 	static {
-		taskUrl = "/partialSummarize";
+		taskUrl = "/mapReduce";
 		clusterHosts = new LinkedList<>();
 		clusterHosts.add("http://192.168.0.101:8080");
 		clusterHosts.add("http://192.168.0.107:8080");
 	}
 	
-	public List<Integer> getTaskIndexes(int taskCount, int clusterCount) {
-		List<Integer> indexes = new LinkedList<>();
-		indexes.add(0);
-		int clusterSize = taskCount / clusterCount;
+	public Map<String, Task> getTasks(int dataCount) {
+		int beginIndex, endIndex = -1;
+		int clusterCount = clusterHosts.size();
+		int dataSizePerCluster = dataCount / clusterCount;
+		Map<String, Task> tasks = new LinkedHashMap<>();
 		for (int i = 0; i < clusterCount; i++) {
-			int candidateIndex = indexes.get(i) + clusterSize;
-			indexes.add(candidateIndex < taskCount - 1 ? candidateIndex : taskCount - 1);
+			beginIndex = endIndex + 1;
+			endIndex = beginIndex + dataSizePerCluster;
+			endIndex = endIndex < dataCount - 1 ? endIndex : dataCount - 1;
+			tasks.put(clusterHosts.get(i) + taskUrl, new Task(beginIndex, endIndex, null));
 		}
-		return indexes;
+		return tasks;
 	}
 
-	public Map<String, Double> mapReduce(List<String> data) {
-		// Map
-		int taskCount = clusterHosts.size();
-		List<Integer> taskIndexes = getTaskIndexes(data.size(), taskCount);
-		List<Future<HttpResponse>> responses = new LinkedList<>();
-		for (int i = 0; i < taskIndexes.size() - 1; i++) {
-			int beginIndex = i == 0 ? taskIndexes.get(i) : taskIndexes.get(i) + 1;
-			int endIndex = taskIndexes.get(i + 1);	
-			String url = clusterHosts.get(i) + taskUrl;
+	public void map(List<String> data, Map<String, Task> taskMap) {
+		Map<String, Future<HttpResponse>> responseMap = new LinkedHashMap<>();
+		for (Entry<String, Task> taskEntry : taskMap.entrySet()) {
+			String url = taskEntry.getKey();
+			Task task = taskEntry.getValue();
 			List<String> partialData = new ArrayList<>();
-			for (int j = beginIndex; j <= endIndex; j++) {
-				partialData.add(data.get(j));
+			for (int i = task.getBeginDataIndex(); i <= task.getEndDataIndex(); i++) {
+				partialData.add(data.get(i));
 			}
-			responses.add(Sender.post(url, partialData));
+			responseMap.put(url, Sender.post(url, partialData));
 		}
-		// Reduce
-		Map<String, Double> summary = new HashMap<>();
-		while (responses.size() > 0) {
-			int i = 0;
-			boolean isDone = false;
-			for (i = 0; i < responses.size(); i++) {
-				Future<HttpResponse> response = responses.get(i);
+		for (Entry<String, Future<HttpResponse>> responseEntry : responseMap.entrySet()) {
+			Task task = taskMap.get(responseEntry.getKey());
+			task.setResponse(responseEntry.getValue());
+		}
+	}
+	
+	public Map<String, Double> mapReduce(List<String> data) {
+		Map<String, Task> taskMap = getTasks(data.size());
+		map(data, taskMap);
+		Map<String, Double> counts = new LinkedHashMap<>();
+		reduce(taskMap, counts);
+		return counts;
+	}
+	
+	public void reduce(Map<String, Task> taskMap, Map<String, Double> counts) {
+		List<Task> unsuccessfulTasks = new LinkedList<>();
+		while (taskMap.size() > 0) {
+			List<String> doneTaskUrls = new LinkedList<>();
+			for (Entry<String, Task> taskEntry : taskMap.entrySet()) {
+				Future<HttpResponse> response = taskEntry.getValue().getResponse();
 				if (response.isDone()) {
-					Map<String, Double> partialSummary = Sender.getMap(response, String.class, Double.class);
-					MapUtil.updateCount(partialSummary, summary);
-					isDone = true;
-					break;
+					Map<String, Double> partialCounts = Sender.getMap(response, String.class, Double.class);
+					if (partialCounts == null) {
+						unsuccessfulTasks.add(taskEntry.getValue());
+					}
+					MapUtil.updateCount(partialCounts, counts);
+					doneTaskUrls.add(taskEntry.getKey());
 				}
 			}
-			if (isDone) {
-				responses.remove(i);
+			for (String doneTaskUrl : doneTaskUrls) {
+				taskMap.remove(doneTaskUrl);
 			}
 		}
-		return summary;
+		for (Task unsuccessfulTask : unsuccessfulTasks) {
+			log.info("The unsuccessful task is {}.", unsuccessfulTask);
+		}
 	}
 }

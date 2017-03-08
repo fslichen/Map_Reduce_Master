@@ -7,6 +7,6 @@ public class AnyServiceTest {
 	
 	@Test
 	public void testGetTaskIndexes() {
-		System.out.println(anyService.getTaskIndexes(12, 3));
+		System.out.println(anyService.getTasks(12));
 	}
 }
