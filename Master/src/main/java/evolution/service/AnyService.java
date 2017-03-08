@@ -23,7 +23,7 @@ public class AnyService {
 		taskUrl = "/";
 		clusterHosts = new LinkedList<>();
 		clusterHosts.add("http://192.168.0.101:8080");
-		clusterHosts.add("http://192.168.1.107:8080");
+//		clusterHosts.add("http://192.168.1.107:8080");
 	}
 	
 	public List<Integer> getTaskIndexes(int taskCount, int clusterCount) {
@@ -37,7 +37,7 @@ public class AnyService {
 		return indexes;
 	}
 
-	public Map<String, Integer> mapReduce(List<String> data) {
+	public Map<String, Double> mapReduce(List<String> data) {
 		// Map
 		int taskCount = clusterHosts.size();
 		List<Integer> taskIndexes = getTaskIndexes(data.size(), taskCount);
@@ -54,11 +54,11 @@ public class AnyService {
 		}
 		// Reduce
 		int doneTaskCount = 0;
-		Map<String, Integer> summary = new HashMap<>();
+		Map<String, Double> summary = new HashMap<>();
 		while (doneTaskCount < taskCount) {
 			for (Future<HttpResponse> response : responses) {
 				if (response.isDone()) {
-					Map<String, Integer> partialSummary = Sender.getMap(response, String.class, Integer.class);
+					Map<String, Double> partialSummary = Sender.getMap(response, String.class, Double.class);
 					MapUtil.updateCount(partialSummary, summary);
 					doneTaskCount++;
 				}
