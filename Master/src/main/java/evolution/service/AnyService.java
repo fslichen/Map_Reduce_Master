@@ -34,7 +34,7 @@ public class AnyService {
 	public String getRandomTaskUrlExcept(String taskUrl) {
 		String randomTaskUrl;
 		do {
-			randomTaskUrl = clusterHosts.get(ThreadLocalRandom.current().nextInt(0, clusterHosts.size() + 1)) + taskPath;
+			randomTaskUrl = clusterHosts.get(ThreadLocalRandom.current().nextInt(0, clusterHosts.size())) + taskPath;
 		} while (randomTaskUrl.equals(taskUrl));
 		return randomTaskUrl;
 	}
@@ -55,12 +55,12 @@ public class AnyService {
 
 	public void map(List<String> data, List<Task> tasks) {
 		for (Task task : tasks) {
-			String url = task.getTaskUrl();
+			String taskUrl = task.getTaskUrl();
 			List<String> partialData = new ArrayList<>();
 			for (int i = task.getBeginDataIndex(); i <= task.getEndDataIndex(); i++) {
 				partialData.add(data.get(i));
 			}
-			task.setResponse(Sender.post(url, partialData));
+			task.setResponse(Sender.post(taskUrl, partialData));
 		}
 	}
 	
@@ -76,6 +76,7 @@ public class AnyService {
 	
 	public List<Task> reduce(List<Task> tasks, Map<String, Double> counts) {
 		List<Task> unsuccessfulTasks = new LinkedList<>();
+		tasks.forEach(x -> x.setSuccess(null));// Set the success status as null by default.
 		while (tasks != null && tasks.size() > 0) {// Tasks not Handled
 			tasks = tasks.stream().filter(x -> x.getSuccess() == null).collect(Collectors.toList());
 			for (Task task : tasks) {
