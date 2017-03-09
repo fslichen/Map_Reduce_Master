@@ -28,7 +28,7 @@ public class AnyService {
 		taskPath = "/mapReduce";
 		clusterHosts = new LinkedList<>();
 		clusterHosts.add("http://192.168.0.101:8080");
-		clusterHosts.add("http://192.168.0.107:8080");
+		clusterHosts.add("http://192.168.0.105:8080");
 	}
 	
 	public String getRandomTaskUrlExcept(String taskUrl) {
